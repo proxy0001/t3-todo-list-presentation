@@ -1,3 +1,10 @@
+# t3-todo-list presenation
+
+介紹 t3-todo-list 如何建構，Slides 使用 Reveal.js 製作。
+
+[Online Presentation](https://t3-todo-list-presentation.vercel.app/)
+
+## 使用 Reveal.js 建立
 <p align="center">
   <a href="https://revealjs.com">
   <img src="https://hakim-static.s3.amazonaws.com/reveal-js/logo/v1/reveal-black-text-sticker.png" alt="reveal.js" width="500">
