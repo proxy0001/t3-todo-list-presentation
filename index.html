@@ -4,7 +4,7 @@
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
-		<title>reveal.js</title>
+		<title>T3-todo-list Presentation</title>
 
 		<link rel="stylesheet" href="dist/reset.css">
 		<link rel="stylesheet" href="dist/reveal.css">
@@ -16,8 +16,966 @@
 	<body>
 		<div class="reveal">
 			<div class="slides">
-				<section>Slide 1</section>
-				<section>Slide 2</section>
+				<section data-markdown data-auto-animate>
+					<textarea data-template>
+						
+						## t3-todo-list
+						- [Online Demo](https://t3-todo-list.vercel.app/)
+						- [Source Code](https://github.com/proxy0001/todo-list)
+						---
+
+						## 目錄
+						1. [Using Tools](#/2)
+						2. [DB Schema & Migrations](#/4)
+						3. [Backend APIs](#/4)
+						4. [Frontend](#/11)
+						5. [Testing](#/18)
+						6. [Frontend Refactor](#/24)
+						7. [Presentation Tool](#/31)
+
+
+						---
+						## Tools
+						- [create-t3-app](https://create.t3.gg/)
+							- [Next.js](https://nextjs.org/)
+							- [tRPC](https://trpc.io/)
+							- [Prisma](https://www.prisma.io/)
+							- [Tailwind CSS](https://tailwindcss.com/)
+							- [NextAuth.js](https://next-auth.js.org/)
+						- [React Spectrum](https://react-spectrum.adobe.com/react-spectrum/index.html)
+						---
+
+						## Tools
+						- [create-t3-app](https://create.t3.gg/): Cli
+							- [Next.js](https://nextjs.org/): React Framework
+							- [tRPC](https://trpc.io/): End-to-End Typesafe
+							- [Prisma](https://www.prisma.io/): ORM
+							- [Tailwind CSS](https://tailwindcss.com/): Utility CSS Framework
+							- [NextAuth.js](https://next-auth.js.org/): Authentication for Next.js
+						- [React Spectrum](https://react-spectrum.adobe.com/react-spectrum/index.html): UI Library
+						---
+
+						## Base Types
+						使用 [Zod](https://zod.dev/) 做型別定義，因為 [tRPC](https://trpc.io/) 需要使用到 ZodType，在 Runtime 時進行型別驗證。
+						```typescript
+						// src/types/task.ts
+						export const task = z.object({
+							id: z.number(),
+							userId,
+							title: z.string(),
+							isFinished: z.boolean().optional(),
+							isArchived: z.boolean().optional(),
+							createdAt: z.date().optional(),
+							updatedAt: z.date().optional(),
+						})
+						export type Task = z.infer<typeof task>
+						```
+						---
+
+						## DB Schema
+						使用 [Prisma](https://www.prisma.io/) 的語法: Prisma Schema Language (PSL) 定義 Schema。
+						```primsa
+						// prisma/schema.prisma
+						model Task {
+							id         Int       @id @default(autoincrement())
+							userId     String
+							createdAt  DateTime  @default(now())
+							updatedAt  DateTime  @updatedAt
+							title      String    @db.Text
+							isFinished Boolean   @default(false)
+							isArchived Boolean   @default(false)
+							user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+						}
+
+						```
+
+						---
+						## DB Migrations
+						更新 Schema 之後，使用 Cli 工具自動產生 Migrations。
+						```
+						npx prisma migrate dev --name init
+						```
+						↓
+						```
+						prisma/
+						└─ migrations/
+							└─ 20230117124118_init/
+								└─ migration.sql
+						```
+
+						---
+						## Backend APIs
+						主要做的事情就是定義 [Procedure](https://trpc.io/docs/procedures)，類似於 REST-endpoint。
+						```
+						src/
+						└─ server/
+							└─ api/
+								└─ routers/ 
+									└─ task.ts // 實作的地方
+								└─ root.ts // 集成所有 routers
+						└─ pages/
+							└─ api/
+								└─ trpc/
+									└─ [trpc].ts // 產生 tRPC 的 APIs
+						```
+						---
+						## Backend APIs
+						[tRPC](https://trpc.io/) 產生的 API 跟 Open API 的定義不同，需要搭配 [trpc-openapi](https://github.com/jlalmes/trpc-openapi) 這個插件進行轉換，這部分需要自行配置。前台介面使用 [Swagger-UI](https://github.com/swagger-api/swagger-ui)。
+						```
+						src/
+						└─ server/
+							└─ openapi.ts // 產生 Open API Document JSON
+						└─ pages/
+							└─ api/
+								└─ [trpc].ts // 產生 Open APIs (這隻名稱應該要改)
+								└─ openapi.json.ts // 獲取 Open API Document JSON 的 API
+							└─ api-doc.tsx // API 前台介面 (Swagger-UI)
+						```
+
+						---
+						## Backend APIs
+
+						用 tRPC 實作 Procedure。
+						```javascript
+						// src/server/api/routers/task.ts
+						export const taskRouter = createTRPCRouter({
+							create: protectedProcedure
+								// 定義 meta 讓 trpc-openapi 用來產生 Open API Document
+								.meta({ openapi: { method: 'POST', path: '/tasks', tags: ['task'], summary: 'Create a task.' }})
+								// 用 ZodType 做型別驗證
+								.input(taskSchema.noHeadTask)
+								.output(taskSchema.task)
+								// 主要有 query 跟 mutation 兩種程序，但差別只有語意。
+								.mutation(async ({ ctx, input }) => {
+									// 用 Prima Client 對資料庫進行操作
+									return await ctx.prisma.task.create({
+										data: input
+									})
+								}),
+						})
+						```
+
+						---
+						## Backend APIs
+
+						產生的 API 長得像這樣：
+						```
+						// tRPC 產生的 API
+						http://localhost:3000/api/trpc/task.todoList?input={"json":{"userId":"cle06jmqd0000dwbus629b1ru"}}
+						
+						// 轉換成 Open API
+						http://localhost:3000/api/todoList?userId=cle06jmqd0000dwbus629b1ru
+						```
+
+						---
+						## Frontend
+						檔案結構
+						```
+						src/
+						└─ components/
+							└─ EditTask.tsx // 編輯 Task 的小組件
+							└─ TaskManager.tsx // 管理 Task 的大組件，需放入對應的 Model 使用
+						└─ hooks/
+							└─ useDemoTaskModel.ts // For Demo
+							└─ usePrismaTaskModel.ts // 管理資料的 Model
+						└─ pages/
+							└─ index.jsx // 首頁
+						```
+
+						---
+						## Frontend Model Type
+						定義 Model 的 Type
+						```javascript
+						// src/types/task.ts
+						export const taskModel = z.object({
+							userId,
+							// 提供 3 種不同任務狀態的 Lists
+							todoList: taskList,
+							finishList: taskList,
+							archiveList: taskList,
+							// 更新 Task 狀態的 Methods
+							createTask: z.function().args(task).returns(z.void()),
+							pushTask: z.function().args(task).returns(z.void()),
+							finishTask: z.function().args(task).returns(z.void()),
+							unfinishTask: z.function().args(task).returns(z.void()),
+							archiveTask: z.function().args(task).returns(z.void()),
+							unarchiveTask: z.function().args(task).returns(z.void()),
+							deleteTask: z.function().args(task).returns(z.void()),
+						})
+						export type TaskModel = z.infer<typeof taskModel>
+						```
+						
+						---
+						## Frontend Index
+						根據是否有登入，選擇要使用的 Model。
+						```tsx
+						// src/pages/index.tsx
+						const Home: NextPage = () => {
+							const { data: sessionData, status: sessionStatus } = useSession()
+							const demoModel = useDemoTaskModel({ userId })
+							const prismaModel = usePrismaTaskModel({ userId })
+							const model = sessionData ? prismaModel : demoModel
+							return (
+								<TaskManager model={model} />
+							)
+						}
+						```
+
+						---
+						## Model For Demo
+						```tsx
+						// src/hooks/useDemoTaskModel.tsx
+						export const useDemoTaskModel: UseTaskModel = ({ userId = '' } = {}) => {
+							const [taskList, setTaskList] = useState(defaultTaskList)
+							const [todoList, setTodoList] = useState(todosFilter(taskList))
+							const [finishList, setFinishList] = useState(finishesFilter(taskList))
+							const [archiveList, setArchiveList] = useState(archivesFilter(taskList))
+						
+							useLayoutEffect(() => {
+								setTodoList(todosFilter(sorted))
+								setFinishList(finishesFilter(sorted))
+								setArchiveList(archivesFilter(sorted))
+							}, [taskList])
+						
+							// 實作更新 taskList 的各個方法
+							const createTask: TaskModel['createTask'] = task => {}
+							const pushTask: TaskModel['pushTask'] = (updatedTask: Task): void => {}
+							const finishTask: TaskModel['finishTask'] = task => {}
+							const unfinishTask: TaskModel['unfinishTask'] = task => {}
+							const archiveTask: TaskModel['archiveTask'] = task => {}
+							const unarchiveTask: TaskModel['unarchiveTask'] = task => {}
+							const deleteTask: TaskModel['deleteTask'] = task => {}
+						
+							return {
+								userId,
+								todoList,
+								finishList,
+								archiveList,
+								createTask,
+								pushTask,
+								finishTask,
+								unfinishTask,
+								archiveTask,
+								unarchiveTask,
+								deleteTask,
+							}
+						}
+						```
+
+						---
+						## Model For Real
+						使用 [tRPC Client](https://trpc.io/docs/client) 操作後端 API，內建使用 [react-query](https://trpc.io/docs/react-query)。
+						```tsx
+						// src/hooks/usePrismaTaskModel.tsx
+						export const usePrismaTaskModel: UseTaskModel = ({ userId = '' } = {}) => {
+							// create-t3-app 將幾個工具整合起來，方便調用
+							const utils = api.useContext()
+							const [todoList, setTodoList] = useState<TaskList>([])
+							// 獲取資料
+							const { data: newTodoList } = api.task.todoList.useQuery({ userId })
+							// 更新顯示
+							useLayoutEffect(() => {
+								setTodoList(newTodoList || [])
+							}, [newTodoList])
+							
+							const createTaskMutation = api.task.create.useMutation({
+								async onMutate (newTask) {
+									// 實作 Optimistic Update
+									await utils.task.todoList.cancel();
+									const prevData = utils.task.todoList.getData();
+									const tmpNewTaskForDisplay = { ...newTask, id: -2 }
+									utils.task.todoList.setData({ userId }, (old) => old ? [tmpNewTaskForDisplay, ...old] : []);
+									return { prevData };
+								},
+								async onSettled () {
+									// 重新獲取資料，確保前後端同步
+									await utils.task.todoList.invalidate();
+								}
+							})
+
+							const createTask: TaskModel['createTask'] = task => {
+								const { id, ...noHeadTask } = task
+								createTaskMutation.mutate(noHeadTask, {
+									onSuccess: (data, variables, context) => {
+										// console.log(`created`, data)
+									},
+									onError: (error, variables, context) => {
+										console.log(`An error happened! ${error.message}`)
+									},
+								})
+							}
+						}
+						```
+
+						---
+						## Model For Real
+						Task 狀態更新會有兩種情況：
+						1. 留在同一個 List： 例如更改標題
+						2. 移動到另一個 List： 例如將狀態改成已完成
+						
+						```tsx
+						// src/hooks/usePrismaTaskModel.tsx
+						export const usePrismaTaskModel: UseTaskModel = ({ userId = '' } = {}) => {
+							const utils = api.useContext()
+							const pushTaskMutation = api.task.push.useMutation({
+								async onMutate (newTask) {
+									// 根據 Task 的狀態變化，反推會從哪個 List 移動至 哪個 List
+									const { fromWhich, toWhich } = fromWhichToWich(oldTask, newTask)
+									if (fromWhich === toWhich) {
+										// 更新後，都還是在同一個 List 裡面
+										// 對該 List 進行樂觀更新
+									} else {
+										// 更新後，會從 A List 移動到 B List
+										// 對 A, B 兩個 List 進行樂觀更新
+									}
+								},
+								async onSettled (newTask) {
+									// 重新獲取資料，確保前後端同步
+									if (fromWhich === toWhich) {
+										// 對該 List 進行同步
+									} else {
+										// 對兩個 List 進行同步
+									}
+								}
+							})
+	
+							const pushTask: TaskModel['pushTask'] = (updatedTask: Task): void => {
+								pushTaskMutation.mutate(updatedTask)
+							}
+						
+						}
+						```
+						
+						---
+						## TaskManager Component
+						主要就是綁定互動事件執行對應的 Model Function，以及自行管理編輯狀態，UI 建構使用 [React Spectrum](https://react-spectrum.adobe.com/react-spectrum/index.html) 。
+						```tsx
+						// src/components/TaskManager.tsx
+						export const TaskManager = ({ model }: TaskManagerProps) => {
+							// use Model
+							const { todoList, finishList, archiveList, pushTask, finishTask, unfinishTask, archiveTask, unarchiveTask, deleteTask } = model
+							const [editingTask, setEditingTask] = useState<Task | null>(NULL_EDITING_TASK)
+							
+							// 多包一層太無謂，重構時拿掉了，還是直接定義 onCancel 的函式就好
+							const commands: Commands = {
+								CANCEL: () => setEditingTask(NULL_EDITING_TASK),
+								CREATE: (task = NEW_EDITING_TASK) => setEditingTask(task),
+								SUBMIT: task => {
+									task && pushTask(task)
+									setEditingTask(NULL_EDITING_TASK)
+								},
+								UPDATE: task => setEditingTask({ ...task } as Task),
+								FINISH: task => finishTask(task),
+								UNFINISH: task => unfinishTask(task),
+								ARCHIVE: task => archiveTask(task),
+								UNARCHIVE: task => unarchiveTask(task),
+								DELETE: task => deleteTask(task),
+							}
+						
+							const onCheckboxChange = (task: Task): SpectrumCheckboxProps['onChange'] => {
+								return isSelected => isSelected ?
+									commands[Actions.Finish](task) :
+									commands[Actions.Unfinish](task)
+							}
+						
+							return (
+								...
+								{
+									// 新增組件時，顯示 EditTask Component
+									editingTask && isNewEditing(editingTask) ?
+									<EditTask task={editingTask} onSubmit={commands[Actions.Submit]} onCansel={commands[Actions.Cancel]} /> :
+									null
+								}
+								
+								{todoList.map(task => (
+									// 編輯組件時，改顯示 EditTask Component
+									editingTask && isEditing(editingTask, task) ?
+									<EditTask key={`editing-${task.id}`} task={editingTask} onSubmit={commands[Actions.Submit]} onCansel={commands[Actions.Cancel]} /> :
+									// 一般顯示項目
+									<Flex key={task.id} justifyContent="space-between">
+										<Checkbox marginEnd="size-200" flexGrow={1} isSelected={task.isFinished} onChange={onCheckboxChange(task)}> {task.title} </Checkbox>
+										<ButtonGroup>
+											<ActionButton isQuiet onPress={e => commands[Actions.Update](task)} aria-label="Edit task"><EditIcon /></ActionButton>
+											<ActionButton isQuiet onPress={e => commands[Actions.Archive](task)} aria-label="Archive task"><ArchiveIcon /></ActionButton>
+											<ActionButton isQuiet onPress={e => commands[Actions.Delete](task)} aria-label="Delete task"><DeleteIcon /></ActionButton>
+										</ButtonGroup>
+									</Flex>
+								))}
+								...
+							)
+						}
+						```
+
+						---
+						## Test
+						使用 Jest。前端針對 hooks 測試，後端針對 APIs 測試，分成 unit test 跟 integration test。
+						
+						```
+						src/
+						└─ hooks/
+							└─ useDemoTaskModel.unit.test.ts
+							└─ usePrismaTaskModel.integration.test.ts
+						└─ server/
+							└─ api/
+								└─ routers/
+									└─ task.unit.test.ts
+									└─ task.integration.test.ts
+						└─ utils/
+							└─ testUtils.ts // for 測試用的一些共用方法
+							└─ testWrapper.tsx // for 前端測試時，需要事先準備 tRPC Providers
+						└─ jest.config.ts // 環境設定
+						└─ docker-compose.yaml // 起測試資料庫
+						```
+
+						---
+						## Test Environment
+						使用 projects 將前後端的測試環境分開
+
+						```javascript
+						// jest.config.ts
+						const config: Config = {
+							coverageProvider: "v8",
+							// 將前端跟後端的測試環境設定分開
+							// 另外將 unit test 跟 integration test 分開
+							projects: [
+								// 後端測試環境
+								{
+									...commonConfig,
+									displayName: 'server:unit',
+									rootDir: "<rootDir>/src/server",
+									testEnvironment: "node",
+									testMatch: [ "**/__tests__/**/*.unit.[jt]s?(x)", "**/?(*.unit.)+(spec|test).[jt]s?(x)" ]
+								},
+								{
+									...commonConfig,
+									displayName: 'server:integration',
+									rootDir: "<rootDir>/src/server",
+									testEnvironment: "node",
+									testMatch: [ "**/__tests__/**/*.integration.[jt]s?(x)", "**/?(*.integration.)+(spec|test).[jt]s?(x)" ]
+								},
+								// 前端測試環境
+								{
+									...commonConfig,
+									displayName: 'client',
+									rootDir: "<rootDir>",
+									testPathIgnorePatterns: ["<rootDir>/node_modules/", "<rootDir>/src/server/"],
+									setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
+									moduleDirectories: ["node_modules", "<rootDir>/"],
+									// 使用 jsdom 模擬瀏覽器環境
+									testEnvironment: "jest-environment-jsdom",
+									transform: {
+										'^.+\\.(mjs|js|jsx|ts|tsx)$': ['babel-jest', { presets: ['next/babel'], "plugins": ["@babel/plugin-proposal-private-methods"] }],
+									},
+									// 不要 ignore node_modules (default 是會)
+									transformIgnorePatterns: [],
+								}
+							],
+						}
+						```
+						
+						---
+						### Backend Unit Test
+						單純測試 API，對 Prisma 進行 Mock，避免依賴於資料庫操作。
+						```javascript
+						// src/utils/testUtils.ts
+						export const setupCallerWithMockPrisma: SetupCallerWithMockPrisma = mockPrismaResponse => {
+							// 建立 mock Prisma
+							const mockPrisma = mockDeep<PrismaClient>()
+							const mockSession = createMockSession()
+							const mockCtx = {
+								session: mockSession,
+								prisma: mockPrismaResponse(mockPrisma)
+							}
+							return {
+								// 建立 api caller (使用 mock 的 prisma)
+								caller: appRouter.createCaller(mockCtx),
+								...mockCtx,
+							}
+						}
+
+						// src/server/api/routers/task.unit.test.ts
+						describe('test task APIs with mock Prisma', () => {
+							it('should return all todos of the user', async () => {
+								type Input = inferProcedureInput<AppRouter['task']['todoList']>
+								const input: Input = {
+									userId: mockData.userId
+								}
+								// 設定 mock primsa 要回傳的內容
+								const mockOutput = mockData.todoList
+								const { caller, prisma } = setupCallerWithMockPrisma(mockPrisma => {
+									mockPrisma.task.findMany.mockResolvedValue(mockOutput)
+									return mockPrisma
+								})
+						
+								const result = await caller.task.todoList(input)
+								expect(prisma.task.findMany).toHaveBeenCalled()
+								expect(result).toHaveLength(mockOutput.length)
+								expect(result).toStrictEqual(mockOutput)
+							})
+						})
+						```
+
+						---
+						### Backend Integration Test
+						用 docker 起測試資料庫，對 APIs 進行整合測試。
+						```javascript
+						// src/server/api/routers/task.integration.test.ts
+						// 準備假資料
+						beforeAll(async () => {
+							await prisma.user.create({
+								data: mockData.userData
+							})
+							await prisma.task.createMany({
+								data: mockData.taskData
+							})
+						})
+						// 清空假資料
+						afterAll(async () => {
+							await prisma.$transaction([
+								prisma.task.deleteMany(),
+								prisma.user.deleteMany(),
+							])
+						
+							await prisma.$disconnect()
+						})
+						
+						describe('test task APIs with real db', () => {
+							const caller = setupCaller()
+						
+							it('should return all todos of the user', async () => {
+								type Input = inferProcedureInput<AppRouter['task']['todoList']>
+								const input: Input = {
+									userId: mockData.userId
+								}
+								const result = await caller.task.todoList(input)
+								expect(result).toHaveLength(mockData.todoList.length)
+								expect(result).toMatchObject(mockData.todoList)
+							})
+						})
+						```
+
+						---
+						### Frontend Unit Test
+						需要使用方便測試 React Hooks 的相關套件。
+
+						```javascript
+						// src/hooks/useDemoTaskModel.unit.test.ts
+						import { renderHook, act } from '@testing-library/react'
+
+						const setup = () => renderHook(() => useDemoTaskModel({ userId: 'tester'}))
+							
+						describe('create task', () => {
+							it('should add a new task in todo list', () => {
+								const { result } = setup()
+								const newTask = { id: 0, title: 'create task', userId: result.current.userId }
+								
+								act(() => {
+									result.current.createTask(newTask)
+								})
+
+								expect(result.current.todoList.length).toBe(2)
+								expect(result.current.todoList[0]).toMatchObject({ ...newTask, id: 4 })
+							})
+						})
+						```
+
+						---
+						### Frontend Integration Test
+						為了讓 tRPC Client 能夠順利運行，需要事先準備一些 Providers，因此會引入許多 Node Base 的套件，這些很多都不相容於 jsdom 的測試環境，例如 ESM 的套件需要另外設定轉換。
+
+						```javascript
+						// src/hooks/usePrismaTaskModel.integration.test.ts
+						
+						// 主要對 NextAuth 的 getServerSession 進行 Mock
+						mockNextAuth()
+						// 準備資料庫裡的假資料
+						beforeAll(async () => {
+							await prisma.user.create({
+								data: mockData.userData
+							})
+							await prisma.task.createMany({
+								data: mockData.taskData
+							})
+						})
+						// 清空假資料
+						afterAll(async () => {
+							await prisma.$transaction([
+								prisma.task.deleteMany(),
+								prisma.user.deleteMany(),
+							])
+						
+							await prisma.$disconnect()
+						})
+						
+						// renderHook 時，傳入額外的 wrapper，提供一些 tRPC 運行必要的 Providers。
+						const setup = () => renderHook(() => usePrismaTaskModel({ userId: mockData.userId}), {
+							wrapper: hookWrapper(mockData.userData),
+						})
+					
+						describe('create task', () => {
+							it('should add a new task in todo list', async () => {
+								const { result } = setup()
+								const originLength = result.current.todoList.length
+				
+								result.current.createTask(mockData.newTodoTask)
+											
+								await waitFor(() => {
+									expect(result.current.todoList.length).toBe(originLength + 1)
+									const newTask = {
+										...mockData.newTodoTask,
+										id: result.current.todoList[0]?.id
+									}
+									expect(result.current.todoList).toContainEqual(newTask)
+								})
+							})
+						})
+						```
+
+						---
+						## Frontend Refactor
+						這版的重構方向是想要將結構改成這樣
+						```
+						TaskManager // 控制所有 List
+							└─ TaskList <-> todoList Model
+							└─ TaskList <-> finishList Model
+							└─ TaskList <-> archiveList Model
+						```
+						
+						---
+						## Frontend Refactor
+						檔案結構
+						```
+						src/
+						└─ components/
+							└─ TaskManager/
+								└─ EditTask.tsx // 編輯 Task 的小組件
+								└─ TaskList.tsx // 單獨一個 List 使用的組件，需放入對應的 Model
+								└─ TaskManager.tsx // 管理三個 List 的大組件
+						└─ hooks/
+							└─ taskListModel/
+								└─ useArchiveListModel.ts // archiveList 的 Model，可單獨使用
+								└─ useFinishListModel.ts // finishList 的 Model，可單獨使用
+								└─ useTodoListModel.ts // todoList 的 Model，可單獨使用
+								└─ utils.ts // 共用方法
+						```
+
+						---
+						## Frontend Refactor
+						```javascript
+						// src/types/task.ts
+
+						// methods 新增 options，提供 Callback 傳入執行
+						export const methodOption = z.object({
+							// 例如要進行樂觀更新的時候
+							onMutate: z.function().args(task).returns(z.void()).optional(),
+							// API 成功的時候
+							onSuccess: z.function().args(task).returns(z.void()).optional(),
+							// API 失敗的時候
+							onError: z.function().args(errorMessage).returns(z.void()).optional(),
+						})
+						export type MethodOption = z.infer<typeof methodOption>
+						
+						export const listModel = z.object({
+							userId,
+							taskList,
+							isLoading: z.boolean(),
+							isError: z.boolean(),
+							createTask: z.function().args(noHeadTask, createMethodOption.optional()).returns(z.void()).optional(),
+							pushTask: z.function().args(task, methodOption.optional()).returns(z.void()).optional(),
+							finishTask: z.function().args(task, methodOption.optional()).returns(z.void()).optional(),
+							unfinishTask: z.function().args(task, methodOption.optional()).returns(z.void()).optional(),
+							archiveTask: z.function().args(task, methodOption.optional()).returns(z.void()).optional(),
+							unarchiveTask: z.function().args(task, methodOption.optional()).returns(z.void()).optional(),
+							deleteTask: z.function().args(task, methodOption.optional()).returns(z.void()).optional(),
+							// 從外部進行樂觀更新，增加一個 Task 的方法
+							optimisticAddTask: z.function().args(task).returns(z.void()).optional(),
+							// 重新獲取資料的方法
+							refetchList: z.function().args(refetchMethodOption.optional()).returns(z.void()).optional(),
+						})
+						
+						export type ListModel = z.infer<typeof listModel>
+						```
+
+						---
+						## Frontend Refactor
+						一個 List Model 只負責提供一個 List 以及相關需要的方法。
+
+						```tsx
+						// src/hooks/taskListModel/useTodoListModel.ts
+						export const useTodoListModel: UseTaskListModel = ({ userId = '' } = {}) => {
+							const utils = api.useContext()
+							const [ taskList, setTaskList ] = useState<TaskList>([])
+						
+							// 重新整理後，將少許不同的地方集中起來，可以發現其實只有這三個地方不同
+							const utilList = utils.task.todoList
+							const apiList = api.task.todoList
+							const filterCondition: FilterCondition = task => task.isFinished !== true && task.isArchived !== true
+							
+							// fetch data
+							const { data: newTaskList, refetch, isLoading, isError } = apiList.useQuery({ userId })
+							useLayoutEffect(() => {
+								setTaskList(newTaskList || [] as TaskList)
+							}, [newTaskList])
+						
+							// 將 optimistic updates 的處理方式抽成共用
+							const createMutation = genMutation<CreateMutation>({
+								userId,
+								utilList: utilList,
+								apiMethod: api.task.create,
+								updater: createUpdater,
+							})
+							// 類似 createMutation 處理
+							const deleteMutation = genMutation<DeleteMutation>({...})
+							const pushMutation = genMutation<PushMutation>({...})
+						
+							// methods 新增 options ，可以提供 Callback 傳入，處理其他事情
+							// onMutate, onSuccess, onError
+							const createTask: ListModel['createTask'] = (noHeadTask, options = {}) => {
+								createMutation.mutate(noHeadTask, {
+									onSuccess: (data, variables, context) => {
+										options.onSuccess && options.onSuccess(data)
+									},
+									onError: (error, variables, context) => {
+										options.onError && options.onError(error.message)
+									},
+								})
+								options.onMutate && options.onMutate(noHeadTask)
+							}
+							// 類似 create 處理即可
+							const deleteTask: ListModel['deleteTask'] = (task, options = {}) => {}
+							const pushTask: ListModel['pushTask'] = (updatedTask, options = {}) => {}
+							const finishTask: ListModel['finishTask'] = (task, options = {}) => {}
+							const unfinishTask: ListModel['unfinishTask'] = (task, options = {}) => {}
+							const archiveTask: ListModel['archiveTask'] = (task, options = {}) => {}
+							const unarchiveTask: ListModel['unarchiveTask'] = (task, options = {}) => {}
+							// 重新獲取資料的方法
+							const refetchList: ListModel['refetchList'] = (options) => {
+								const run = async () => {
+									await utilList.cancel()
+									return await refetch()
+								}
+								run().then(({ data }) => {
+									options && options.onSuccess && options.onSuccess(data || [])
+								}).catch((error) => {
+									const message = 'refetch unknown error'
+									options && options.onError && options.onError(message)
+								})
+							}
+							// 提供外部可以進行樂觀更新，直接插入資料
+							const optimisticAddTask: ListModel['optimisticAddTask'] = (task) => {
+								const newTaskList = [task, ...taskList].sort((a, b) => a.id < b.id ? 1 : -1)
+								setTaskList(newTaskList)
+							}
+						}
+						```
+
+						---
+						## Frontend Refactor
+						TaskList Component 實作
+						```tsx
+						// src/components/TaskManager/TaskList.tsx
+						export const TaskList = ({
+							title = '',
+							model,
+							// 控制功能是否開啟，例如是否可以新增
+							activeCreate = true,
+							...
+							// 提供外部在不同的時機執行其他事情
+							onCreateMutate,
+							onFinishMutate,
+							...
+							afterCreated,
+							afterFinished,
+							...
+						}: TaskListProps) => {
+							const { userId, taskList, createTask, pushTask, archiveTask, unarchiveTask, deleteTask, finishTask, unfinishTask } = model
+							const [ newTask, setNewTask ] = useState<NoHeadTask | null>(null)
+							const [ editingTask, setEditingTask ] = useState<Task | null>(null)
+							
+							const onCreate = () => {
+								setNewTask({ title: '', userId })
+							}
+						
+							const onSubmitCreate = (noHeadTask: NoHeadTask) => {
+								const options: CreateMethodOption = {
+									onMutate: noHeadTask => {
+										onCreateMutate && onCreateMutate(noHeadTask)
+										console.log('create onMutate')
+									},
+									onSuccess: task => {
+										afterCreated && afterCreated(task)
+										console.log('create onSuccess')
+									},
+									onError: error => {
+										console.log('create onError')
+									},
+								}
+								createTask && createTask(noHeadTask, options)
+								setNewTask(null)
+							}
+							// 都跟 create 差不多
+							const onCanselCreate = () => {}
+							const onEdit = (editingTask: Task) => () => {}
+							const onSubmitEdit = (updatedTask: Task) => {}
+							const onCanselEdit = () => {}
+							const onDelete = (task: Task) => () => {}
+							const onArchive = (task: Task) => () => {}
+							const onUnarchive = (task: Task) => () => {}
+							const onFinish = (task: Task) => {}
+							const onUnfinish = (task: Task) => {}
+							const onSwichFinished = (task: Task): SpectrumCheckboxProps['onChange'] => isSelected => {
+								isSelected ? onFinish(task) : onUnfinish(task)
+							}
+						
+							return (
+							<View minWidth="size-6000">
+								<Header>
+									<Flex justifyContent="space-between" alignItems="center">
+										<Heading level={3}>{title}</Heading>
+										<ButtonGroup>
+											// 是否啟用 Create Button
+											<IsShow active={activeCreateAction}><ActionButton onPress={onCreate} aria-label="Add task"><AddIcon /></ActionButton></IsShow>
+										</ButtonGroup>
+									</Flex>
+								</Header>
+								<Content margin="size-200" marginBottom="size-800">
+									<IsShow active={activeNewTaskComp}>
+										<EditTask task={newTask} onSubmit={onSubmitCreate} onCansel={onCanselCreate} />
+									</IsShow>
+
+									{ taskList.map(task => activeEditingTaskComp(task) ?
+									<EditTask key={`editing-${task.id}`} task={editingTask} onSubmit={onSubmitEdit} onCansel={onCanselEdit} /> :
+									<Flex key={task.id} justifyContent="space-between">
+										<Checkbox isDisabled={!activeSwitchFinishAction} marginEnd="size-200" flexGrow={1} isSelected={task.isFinished} onChange={onSwichFinished(task)}><span className={task.isFinished ? 'line-through' : ''}>{task.title}</span></Checkbox>
+										<ButtonGroup>
+											<IsShow active={activeEditAction}><ActionButton isQuiet onPress={onEdit(task)} aria-label="Edit task"><EditIcon /></ActionButton></IsShow>
+											<IsShow active={activeArchiveAction}><ActionButton isQuiet onPress={onArchive(task)} aria-label="Archive task"><ArchiveIcon /></ActionButton></IsShow>
+											<IsShow active={activeUnarchiveAction}><ActionButton isQuiet onPress={onUnarchive(task)} aria-label="Unarchive task"><ArchiveRemoveIcon /></ActionButton></IsShow>
+											<IsShow active={activeDeleteAction}><ActionButton isQuiet onPress={onDelete(task)} aria-label="Delete task"><DeleteIcon /></ActionButton></IsShow>
+										</ButtonGroup>
+									</Flex>}
+								</Content>
+							</View>
+							)
+						}
+						```
+
+						---
+						## Frontend Refactor
+						TaskManager Component 實作
+						```tsx
+						// src/components/TaskManager/TaskManager.tsx
+						export const TaskManager = ({
+							userId = '',
+						}: TaskManagerProps) => {
+							const todoListModel = useTodoListModel({ userId })
+							const finishListModel = useFinishListModel({ userId })
+							const archiveListModel = useArchiveListModel({ userId })
+							
+							// 需要的時候可以調用 refetchList 更新列表
+							const refetchTodoList = (updatedTask: Task) => {
+								const options: RefetchMethodOption = {
+									onSuccess: (taskList) => {
+										console.log('todo list refetch success')
+									},
+									onError: (error) => {
+										console.log('todo list refetch error')
+									}
+								}
+								todoListModel.refetchList && todoListModel.refetchList(options)
+							}
+							// 都跟 refetchTodoList 一樣
+							const refetchFinishList = (updatedTask: Task) => {}
+							const refetchArchiveList = (updatedTask: Task) => {}
+							// 當 todo -> finish 的時候，一併進行 finishList 的樂觀更新
+							const onTodoListFinishMutate = (updatedTask: Task) => {
+								console.log('onTodoListFinishMutate')
+								finishListModel.optimisticAddTask && finishListModel.optimisticAddTask(updatedTask)
+							}
+							// 跟上面差不多
+							const onTodoListArchiveMutate = (updatedTask: Task) => {}
+							const onFinishListUnfinishMutate = (updatedTask: Task) => {}
+							const onFinishListArchiveMutate = (updatedTask: Task) => {}
+							const onArchiveListUnarchiveMutate = (updatedTask: Task) => {}
+							
+							// 當 todo -> finish，後端更新完成時，進行 finishList 的 refecth
+							const afterTodoListFinished = (updatedTask: Task) => {
+								console.log('afterTodoListFinished')
+								refetchFinishList(updatedTask)
+							}
+							// 跟上面差不多
+							const afterTodoListArchived = (updatedTask: Task) => {}
+							const afterFinishListUnfinished = (updatedTask: Task) => {}
+							const afterFinishListArchived = (updatedTask: Task) => {}
+							const afterArchiveListUnarchived = (updatedTask: Task) => {}
+						
+							return (
+							<Tabs aria-label="History of Ancient Rome">
+								<TabList>
+									<Item key="tasklist" textValue="Task List Tab"><TaskListIcon /><Text>Task List</Text></Item>
+									<Item key="archives" textValue="Archived Tab"><ArchiveIcon /><Text>Archived</Text></Item>
+								</TabList>
+								<TabPanels>
+									<Item key="tasklist" textValue="Task List Panel">
+										<TaskList title="Today's Task"
+											model={todoListModel}
+											activeUnarchive={false}
+											onFinishMutate={onTodoListFinishMutate}
+											onArchiveMutate={onTodoListArchiveMutate}
+											afterFinished={afterTodoListFinished}
+											afterArchived={afterTodoListArchived}
+										/>
+										<TaskList title="Finished" 
+											model={finishListModel}
+											activeUnarchive={false}
+											activeCreate={false}
+											onUnfinishMutate={onFinishListUnfinishMutate}
+											onArchiveMutate={onFinishListArchiveMutate}
+											afterUnfinished={afterFinishListUnfinished}
+											afterArchived={afterFinishListArchived}
+										/>
+									</Item>
+									<Item key="archives" textValue="Archived Panel">
+										<TaskList title="Archived"
+											model={archiveListModel}
+											activeArchive={false}
+											activeCreate={false}
+											onUnarchiveMutate={onArchiveListUnarchiveMutate}
+											afterUnarchived={afterArchiveListUnarchived}
+										/>
+									</Item>
+								</TabPanels>
+							</Tabs>
+							)
+						}
+						```
+
+						---
+						## Frontend Refactor Review
+						還可以繼續修改
+						1. 三個 List Model 幾乎長的一模一樣，應該寫成一隻用參數控制。
+						2. TaskManager 需要自行管理三個 Model 之間的關係
+						3. 可以再有一個大 Model 負責提供整合後的功能
+						4. 並保持原本 TaskManager 對應一個 Model 的設計
+						```
+						TaskManager    <->  TaskModel
+							└─ TaskList  <->    └─ List Model (todo)
+							└─ TaskList  <->    └─ List Model (finish)
+							└─ TaskList  <->    └─ List Model (archive)
+						```						
+
+						---
+						## Prsentation Tool
+						Slide 使用 [Reveal.js](https://revealjs.com/) 準備，可以使用 html 的方式建立簡報，也支援 Markdown。
+						使用 Markdown 的話，會自動轉換，基本上只需要準備內容即可。
+						但有個小缺點是，gulp 在跑 dev 的時候效能較差。
+
+						---
+						## End
+						謝謝收看 👋
+
+					</textarea>
+				</section>
 			</div>
 		</div>
 
@@ -31,7 +989,7 @@
 			// - https://revealjs.com/config/
 			Reveal.initialize({
 				hash: true,
-
+				slideNumber: 'c/t',
 				// Learn about plugins: https://revealjs.com/plugins/
 				plugins: [ RevealMarkdown, RevealHighlight, RevealNotes ]
 			});
